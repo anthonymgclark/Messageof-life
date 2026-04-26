@@ -1,15 +1,18 @@
 import { defineMiddleware } from "astro:middleware";
 
 export const onRequest = defineMiddleware(async (context, next) => {
-  // Fix Keystatic OAuth URL on Vercel — the serverless function receives
-  // a relative URL so Keystatic falls back to 'https://localhost' as the origin.
-  // We reconstruct the request with the correct absolute URL from x-forwarded-host.
+  // Fix Keystatic OAuth URL on Vercel.
+  // Astro's adapter corrects context.url via x-forwarded-host, but
+  // context.request.url (what Keystatic reads directly) stays as
+  // https://localhost/... from the internal Vercel network.
+  // We always reconstruct the request URL from x-forwarded-host when present.
   if (context.url.pathname.startsWith("/api/keystatic")) {
     const forwardedHost = context.request.headers.get("x-forwarded-host");
     const forwardedProto =
       context.request.headers.get("x-forwarded-proto") ?? "https";
+    const requestHost = new URL(context.request.url).hostname;
 
-    if (forwardedHost && context.url.hostname === "localhost") {
+    if (forwardedHost && requestHost !== forwardedHost) {
       const correctedUrl = new URL(
         context.url.pathname + context.url.search,
         `${forwardedProto}://${forwardedHost}`
@@ -22,7 +25,6 @@ export const onRequest = defineMiddleware(async (context, next) => {
         redirect: context.request.redirect as RequestRedirect,
       });
 
-      // Replace the request in context
       Object.defineProperty(context, "request", {
         value: correctedRequest,
         writable: true,
